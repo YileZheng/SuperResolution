@@ -8,6 +8,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 import os
 import argparse
+from time import time
 from torch.optim import lr_scheduler
 import wandb
 
@@ -155,9 +156,9 @@ def draw_bbox(image, bbox):
     cv2.rectangle(image, (topleft_x, topleft_y), (botright_x, botright_y), (255, 0, 0), 1) 
     cv2.imwrite('res.jpg', image*255.0)
 
-def train_model(model, criterion, optimizer, num_epochs=25):
+def train_model(model, criterion, optimizer, lrScheduler, trainloader, num_epochs=25):
     # since = time.time()
-    for epoch in range(epoch_start, num_epochs):
+    for epoch in range(1, num_epochs):
         lossAver = []
         model.train(True)
         lrScheduler.step()
@@ -211,7 +212,7 @@ args = vars(ap.parse_args())
 
 def main():
     numClasses = 4
-    img_size = (480, 480)
+    imgSize = (480, 480)
     batchSize = args['batchsize']
     epochs = args['epochs']
     model = wR2(numClasses)
@@ -222,7 +223,7 @@ def main():
     lrScheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
     dst = ChaLocDataLoader(args["images"].split(','), imgSize)
     trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=4)
-    model_conv = train_model(model, criterion, optimizer, num_epochs=epochs)
+    model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, num_epochs=epochs)
 
 if __name__=='__main__':
     main()
