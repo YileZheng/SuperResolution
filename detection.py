@@ -1,8 +1,8 @@
+import cv2
 import torch
 import torch.nn as nn
 from torch.utils.data import *
 from imutils import paths
-import cv2
 import numpy as np
 import torch.optim as optim
 from torch.autograd import Variable
@@ -10,7 +10,11 @@ import os
 import argparse
 from time import time
 from torch.optim import lr_scheduler
-import wandb
+
+USE_WANDB = False
+if USE_WANDB:
+    import wandb
+    wandb.init(project='alpr', entity='afzal', run='detection_skeleton_0')
 
 #Courtesy of https://github.com/detectRecog/CCPD/
 class ChaLocDataLoader(Dataset):
@@ -46,6 +50,7 @@ class ChaLocDataLoader(Dataset):
         resizedImage /= 255.0
 
         return resizedImage, new_labels
+
 
 class wR2(nn.Module):
     def __init__(self, num_classes=1000):
@@ -146,66 +151,126 @@ class wR2(nn.Module):
         x = self.classifier(x11)
         return x
 
-def draw_bbox(image, bbox):
-    h, w = image.shape[1], image.shape[2]
-    image = np.reshape(image, (image.shape[1],image.shape[2], image.shape[0]))
+def draw_bbox(image, bbox, color):  #Input/Output in (C, H, W), 0-1 range
+    image_cp = np.copy(image)
+    h, w = image_cp.shape[1], image_cp.shape[2]
+    image_cp = np.float32(np.reshape(image_cp, (image_cp.shape[1],image_cp.shape[2], image_cp.shape[0])))
     topleft_x = int(bbox[0]*w - bbox[2]*w/2.)
     topleft_y = int(bbox[1]*h - bbox[3]*h/2.)
     botright_x = int(bbox[0]*w + bbox[2]*w/2.)
     botright_y = int(bbox[1]*h + bbox[3]*h/2.)
-    cv2.rectangle(image, (topleft_x, topleft_y), (botright_x, botright_y), (255, 0, 0), 1) 
-    cv2.imwrite('res.jpg', image*255.0)
+    if color == 'g':
+        cl = (0, 255, 0)
+    elif color == 'r':
+        cl = (0, 0, 255)
+    else:
+        cl = (0, 0, 0)
+    cv2.rectangle(image_cp, (topleft_x, topleft_y), (botright_x, botright_y), cl, 1) 
+    return np.reshape(image_cp, (image_cp.shape[2], image_cp.shape[0], image_cp.shape[1]))
 
-def train_model(model, criterion, optimizer, lrScheduler, trainloader, num_epochs=25):
-    # since = time.time()
+def write_image(image, filename): #Input in (C, H, W), 0-1 range
+    image_cp = np.copy(image)
+    image_cp = np.float32(np.reshape(image_cp, (image_cp.shape[1],image_cp.shape[2], image_cp.shape[0])))
+    print('Writing Image...')
+    cv2.imwrite(filename, image_cp*255.0)
+
+def retrieve_img(image):
+    cp = np.copy(image)
+    cp = np.reshape(cp, (cp.shape[1], cp.shape[2], cp.shape[0]))
+    resized = cv2.resize(cp, (720, 1160))
+    cp = np.reshape(resized, (resized.shape[2], resized.shape[0], resized.shape[1]))
+    return cp
+
+def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize, num_epochs=25):
+    model.train()
     for epoch in range(1, num_epochs):
+        print(f'Starting Epoch {epoch}')
         lossAver = []
-        model.train(True)
         lrScheduler.step()
         start = time()
 
         for i, (XI, YI) in enumerate(trainloader):
             # print('%s/%s %s' % (i, times, time()-start))
             YI = np.array([el.numpy() for el in YI]).T
-            if use_gpu:
-                x = Variable(XI.cuda(0))
-                y = Variable(torch.FloatTensor(YI).cuda(0), requires_grad=False)
-            else:
-                x = Variable(XI)
-                y = Variable(torch.FloatTensor(YI), requires_grad=False)
+            x = Variable(XI.cuda(0))
+            y = Variable(torch.FloatTensor(YI).cuda(0), requires_grad=False)
             # Forward pass: Compute predicted y by passing x to the model
             y_pred = model(x)
 
             # Compute and print loss
             loss = 0.0
             if len(y_pred) == batchSize:
-                loss += 0.8 * nn.L1Loss().cuda()(y_pred[:][:2], y[:][:2])
+                loss += 0.8 * nn.L1Loss().cuda()(y_pred[:][:2], y[:][:2]) #Penalizing more on box center coordinates
                 loss += 0.2 * nn.L1Loss().cuda()(y_pred[:][2:], y[:][2:])
-                lossAver.append(loss.data[0])
+                lossAver.append(loss.item())
 
                 # Zero gradients, perform a backward pass, and update the weights.
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                torch.save(model.state_dict(), storeName)
-            if i % 50 == 1:
+                torch.save(model.state_dict(), 'model.out')
+            if i*batchSize == 200:
+                old_img = retrieve_img(XI[0])
+                old_img = draw_bbox(old_img, YI[0],'g')
+                old_img = draw_bbox(old_img, y_pred[0],'r')
+                write_image(old_img, 'result.jpg')
+                #old_img1 = retrieve_img(XI[1])
+                #old_img1 = draw_bbox(old_img1, YI[1],'g')
+                #old_img1 = draw_bbox(old_img1, y_pred[1],'r')
+                #write_image(old_img1, 'result1.jpg')
+                print(IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy()))
+                #gtr_img = draw_bbox(XI[0], YI[0], 'g')
+                #pred_img = draw_bbox(gtr_img, y_pred[0], 'r')
+                #new_img = retrieve_img(pred_img)
+                #write_image(new_img, 'result.jpg')
+
+            if i % 10 == 1:
+                print('Epoch {}, Processed {}, Time {}, Loss {}'.format(epoch, i*batchSize, time()-start, sum(lossAver)/len(lossAver)))
                 with open(args['writeFile'], 'a') as outF:
                     outF.write('train %s images, use %s seconds, loss %s\n' % (i*batchSize, time() - start, sum(lossAver[-50:]) / len(lossAver[-50:])))
         print ('%s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
         with open(args['writeFile'], 'a') as outF:
             outF.write('Epoch: %s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
-        torch.save(model.state_dict(), storeName + str(epoch))
+        torch.save(model.state_dict(), 'model_save' + str(epoch))
     return model
+
+def IoU(boxa, boxb):
+    boxA = np.zeros(boxa.shape)
+    boxB = np.zeros(boxb.shape)
+    boxA[:,:2] = boxa[:,:2] - boxa[:,2:]/2.
+    boxA[:,2:] = boxa[:,:2] + boxa[:,2:]/2.
+    boxB[:,:2] = boxb[:,:2] - boxb[:,2:]/2.
+    boxB[:,2:] = boxb[:,:2] + boxb[:,2:]/2.
+
+    # determine the (x, y)-coordinates of the intersection rectangle
+    xA = np.maximum(boxA[:,0], boxB[:,0])
+    yA = np.maximum(boxA[:,1], boxB[:,1])
+    xB = np.minimum(boxA[:,2], boxB[:,2])
+    yB = np.minimum(boxA[:,3], boxB[:,3])
+
+    # compute the area of intersection rectangle
+    interArea = np.maximum(0, xB - xA + 1) * np.maximum(0, yB - yA + 1)
+
+    # compute the area of both the prediction and ground-truth
+    # rectangles
+    boxAArea = (boxA[:,2] - boxA[:,0] + 1) * (boxA[:,3] - boxA[:,1] + 1)
+    boxBArea = (boxB[:,2] - boxB[:,0] + 1) * (boxB[:,3] - boxB[:,1] + 1)
+    
+    # compute the intersection over union by taking the intersection
+    # area and dividing it by the sum of prediction + ground-truth
+    # areas - the interesection area
+    iou = np.divide(interArea, boxAArea + boxBArea - interArea)
+
+    # return the intersection over union value
+    return iou
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--images", required=True,
                 help="path to the input file")
 ap.add_argument("-n", "--epochs", default=25,
                 help="epochs for train")
-ap.add_argument("-b", "--batchsize", default=4,
+ap.add_argument("-b", "--batchsize", default=5,
                 help="batch size for train")
-ap.add_argument("-r", "--resume", default='111',
-                help="file for re-train")
 ap.add_argument("-w", "--writeFile", default='wR2.out',
                 help="file for output")
 args = vars(ap.parse_args())
@@ -213,17 +278,30 @@ args = vars(ap.parse_args())
 def main():
     numClasses = 4
     imgSize = (480, 480)
+    origSize = (720, 1160)
     batchSize = args['batchsize']
     epochs = args['epochs']
+    lr = 0.001
+    momentum = 0.9
+
+    if USE_WANDB:
+        config = wandb.config
+        config.imgSize = imgSize
+        config.batchSize = batchSize
+        config.epochs = epochs
+        config.lr = lr
+        config.momentum = momentum
+
     model = wR2(numClasses)
-    model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
+    #model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count())) # This piece of shit hangs the node. Fucker
     model = model.cuda()
     criterion = nn.MSELoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
     lrScheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
     dst = ChaLocDataLoader(args["images"].split(','), imgSize)
     trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=4)
-    model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, num_epochs=epochs)
+    print('Starting Training...')
+    model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize, num_epochs=epochs)
 
 if __name__=='__main__':
     main()
