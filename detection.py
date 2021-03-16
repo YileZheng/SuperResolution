@@ -12,7 +12,7 @@ from time import time
 from torch.optim import lr_scheduler
 from utils.dsetparser import parse_dset_config
 
-USE_WANDB = False
+USE_WANDB = True
 if USE_WANDB:
     import wandb
     wandb.init(project='alpr', entity='afzal', name='detection_skeleton_0')
@@ -237,15 +237,17 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloade
                 #    wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
                     wandb.save('trained_models/checkpoints/save_ckpt.pth')
 
-            if i % 10 == 0:
+            if i % 500 == 0:
                 curloss = sum(lossAver)/len(lossAver)
-                curacc = correct_pred/(i*batchSize)
+                curacc = correct_pred/((i+1)*batchSize)
                 if USE_WANDB:
-                    wandb.log({'Current Training Loss':curloss, 'Current Training Acc':curacc}, step=int((epoch-1)*dset_len/10+i/10))
+                    wandb.log({'Current Training Loss':curloss}, step=int((epoch-1)*dset_len/500+i/500))
+                    wandb.log({'Current Training Acc':curacc}, step=int((epoch-1)*dset_len/500+i/500))
                 print('Epoch {}, Processed: {}, Time: {}, Loss: {}, Acc: {}'.format(epoch, i*batchSize, time()-start, curloss, curacc))
         print ('Epoch %s Trained, Loss: %s, Accuracy: %s, Time: %s\n' % (epoch, sum(lossAver) / len(lossAver), correct_pred/(dset_len*batchSize), time()-start))
         if USE_WANDB:
-            wandb.log({'Epoch Train Loss': sum(lossAver)/len(lossAver), 'Epoch Train Accuracy': correct_pred/(dset_len*batchSize)}, step = epoch)
+            wandb.log({'Epoch Train Loss': sum(lossAver)/len(lossAver)}, step = epoch)
+            wandb.log({'Epoch Train Accuracy': correct_pred/(dset_len*batchSize)}, step = epoch)
             wandb.save('trained_models/epochs/save_epoch' + str(epoch) + '.pth')
         torch.save(model.state_dict(), 'trained_models/epochs/save_epoch' + str(epoch) + '.pth')
         #Begin Eval here
@@ -280,7 +282,7 @@ def val_model(model, evalloader, batchSize, epoch):
         correct_pred += np.sum(bin_correct)
         #print('Number correct so far: {}'.format(correct_pred))
 
-        if (i*batchSize)%500 == 0:
+        if (i*batchSize)%10000 == 0:
             #write_image(old_img, str(iou_val[0])+'.jpg')
             #print(iou_val)
             if USE_WANDB:
@@ -288,14 +290,15 @@ def val_model(model, evalloader, batchSize, epoch):
                 old_img = draw_bbox(old_img, YI[0],'g')
                 old_img = draw_bbox(old_img, y_pred[0],'r')
                 iou_val = batch_iou[0] 
-                wandb.log({'Sample Test Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]}, step=epoch)
+                wandb.log({'Sample Test Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]}, commit=False) #step=int((epoch-1)*dset_len*batchSize/10000 + i*batchSize/10000))
 
-        if i % 10 == 0:
+        if i % 500 == 0:
             curloss = sum(lossAver)/len(lossAver)
-            print('Evaluating Epoch: {}, Processed: {}, Time: {}, Loss: {}, Accuracy: {}'.format(epoch, i*batchSize, time()-start, curloss, correct_pred/(i*batchSize)))
-    print ('Epoch %s Evaluated, Loss: %s, Accuracy: %s, Time Elapsed: %s\n' % (epoch, sum(lossAver) / len(lossAver), correct_pred/(i*batchSize), time()-start))
+            print('Evaluating Epoch: {}, Processed: {}, Time: {}, Loss: {}, Accuracy: {}'.format(epoch, i*batchSize, time()-start, curloss, correct_pred/((i+1)*batchSize)))
+    print ('Epoch %s Evaluated, Loss: %s, Accuracy: %s, Time Elapsed: %s\n' % (epoch, sum(lossAver) / len(lossAver), correct_pred/((i+1)*batchSize), time()-start))
     if USE_WANDB:
-        wandb.log({'Eval Epoch Loss': sum(lossAver)/len(lossAver), 'Eval Epoch Accuracy': correct_pred/(i*batchSize)}, step=epoch)
+        wandb.log({'Eval Epoch Loss': sum(lossAver)/len(lossAver)}, step=epoch)
+        wandb.log({'Eval Epoch Accuracy': correct_pred/((i+1)*batchSize)}, step=epoch)
     return
 
 def IoU(boxa, boxb):
@@ -335,8 +338,6 @@ ap.add_argument("-n", "--epochs", default=300,
                 help="epochs for train")
 ap.add_argument("-b", "--batchsize", default=5,
                 help="batch size for train")
-ap.add_argument("-w", "--writeFile", default='wR2.out',
-                help="file for output")
 args = vars(ap.parse_args())
 
 def main():
