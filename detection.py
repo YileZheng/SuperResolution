@@ -194,7 +194,7 @@ def retrieve_img(image):
 def channels_last(image):
     return np.reshape(image, (image.shape[1], image.shape[2], image.shape[0]))
 
-def train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloader, batchSize, num_epochs=25):
+def train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloader, batchSize, num_epochs=300):
     for epoch in range(1, num_epochs):
         model.train()
         print(f'Starting Epoch {epoch}')
@@ -331,7 +331,7 @@ def IoU(boxa, boxb):
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--dsetconf", default='dset_config/config.ccpd',
                 help="path to the dataset config file")
-ap.add_argument("-n", "--epochs", default=25,
+ap.add_argument("-n", "--epochs", default=300,
                 help="epochs for train")
 ap.add_argument("-b", "--batchsize", default=5,
                 help="batch size for train")
@@ -357,7 +357,12 @@ def main():
         config.momentum = momentum
 
     model = wR2(numClasses)
-    #model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count())) # This piece of shit hangs the node. Fucker
+    #model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count())) # This piece of shit hangs 
+            #the node pretty fucking badly, to the point that the script process is unkillable and have to restart 
+            #the node to restore operation, which results in a stopped docker container removing all its contents. 
+            #(https://github.com/pytorch/pytorch/issues/24081#issuecomment-557074611). Cant disable IOMMU in BIOS 
+            #since working on a remote node. Got no choice but to work with a single GPU. 
+            #In summary, as Linus Torvalds would say: FUCK YOU NVIDIA
     model = model.cuda()
     criterion = nn.MSELoss()
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
