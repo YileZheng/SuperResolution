@@ -11,10 +11,10 @@ import argparse
 from time import time
 from torch.optim import lr_scheduler
 
-USE_WANDB = False
+USE_WANDB = True
 if USE_WANDB:
     import wandb
-    wandb.init(project='alpr', entity='afzal', run='detection_skeleton_0')
+    wandb.init(project='alpr', entity='afzal', name='detection_skeleton_0')
 
 #Courtesy of https://github.com/detectRecog/CCPD/
 class ChaLocDataLoader(Dataset):
@@ -172,7 +172,7 @@ def write_image(image, filename): #Input in (C, H, W), 0-1 range
     image_cp = np.copy(image)
     image_cp = np.float32(np.reshape(image_cp, (image_cp.shape[1],image_cp.shape[2], image_cp.shape[0])))
     print('Writing Image...')
-    cv2.imwrite(filename, image_cp*255.0)
+    cv2.imwrite(filename, image_cp*255.0
 
 def retrieve_img(image):
     cp = np.copy(image)
@@ -181,6 +181,9 @@ def retrieve_img(image):
     cp = np.reshape(resized, (resized.shape[2], resized.shape[0], resized.shape[1]))
     return cp
 
+def channels_last(image):
+    return np.reshape(image, (image.shape[1], image.shape[2], image.shape[0]))
+
 def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize, num_epochs=25):
     model.train()
     for epoch in range(1, num_epochs):
@@ -188,7 +191,8 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize
         lossAver = []
         lrScheduler.step()
         start = time()
-
+        dset_len = len(trainloader)
+        print(dset_len)
         for i, (XI, YI) in enumerate(trainloader):
             # print('%s/%s %s' % (i, times, time()-start))
             YI = np.array([el.numpy() for el in YI]).T
@@ -209,26 +213,35 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize
                 loss.backward()
                 optimizer.step()
                 torch.save(model.state_dict(), 'model.out')
-            if i*batchSize == 200:
+            if (i*batchSize)%500 == 0:
                 old_img = retrieve_img(XI[0])
                 old_img = draw_bbox(old_img, YI[0],'g')
                 old_img = draw_bbox(old_img, y_pred[0],'r')
-                write_image(old_img, 'result.jpg')
+                iou_val = IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy())
+                write_image(old_img, str(iou_val[0])+'.jpg')
+                print(iou_val)
+                if USE_WANDB:
+                    wandb.log({'sample_no='+str(i*batchSize): [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
                 #old_img1 = retrieve_img(XI[1])
                 #old_img1 = draw_bbox(old_img1, YI[1],'g')
                 #old_img1 = draw_bbox(old_img1, y_pred[1],'r')
                 #write_image(old_img1, 'result1.jpg')
-                print(IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy()))
+                #print(IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy()))
                 #gtr_img = draw_bbox(XI[0], YI[0], 'g')
                 #pred_img = draw_bbox(gtr_img, y_pred[0], 'r')
                 #new_img = retrieve_img(pred_img)
                 #write_image(new_img, 'result.jpg')
 
-            if i % 10 == 1:
-                print('Epoch {}, Processed {}, Time {}, Loss {}'.format(epoch, i*batchSize, time()-start, sum(lossAver)/len(lossAver)))
+            if i % 10 == 0:
+                curloss = sum(lossAver)/len(lossAver)
+                if USE_WANDB:
+                    wandb.log({'Current Loss':curloss}, step=int((epoch-1)*dset_len/10+i/10))
+                print('Epoch {}, Processed {}, Time {}, Loss {}'.format(epoch, i*batchSize, time()-start, curloss))
                 with open(args['writeFile'], 'a') as outF:
                     outF.write('train %s images, use %s seconds, loss %s\n' % (i*batchSize, time() - start, sum(lossAver[-50:]) / len(lossAver[-50:])))
         print ('%s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
+        if USE_WANDB:
+            wandb.log({'Epoch Loss': sum(lossAver)/len(lossAver)})
         with open(args['writeFile'], 'a') as outF:
             outF.write('Epoch: %s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
         torch.save(model.state_dict(), 'model_save' + str(epoch))
@@ -269,7 +282,7 @@ ap.add_argument("-i", "--images", required=True,
                 help="path to the input file")
 ap.add_argument("-n", "--epochs", default=25,
                 help="epochs for train")
-ap.add_argument("-b", "--batchsize", default=5,
+ap.add_argument("-b", "--batchsize", default=10,
                 help="batch size for train")
 ap.add_argument("-w", "--writeFile", default='wR2.out',
                 help="file for output")
