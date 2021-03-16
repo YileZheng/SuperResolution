@@ -12,7 +12,7 @@ from time import time
 from torch.optim import lr_scheduler
 from utils.dsetparser import parse_dset_config
 
-USE_WANDB = True
+USE_WANDB = False
 if USE_WANDB:
     import wandb
     wandb.init(project='alpr', entity='afzal', name='detection_skeleton_0')
@@ -194,14 +194,15 @@ def retrieve_img(image):
 def channels_last(image):
     return np.reshape(image, (image.shape[1], image.shape[2], image.shape[0]))
 
-def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize, num_epochs=25):
-    model.train()
+def train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloader, batchSize, num_epochs=25):
     for epoch in range(1, num_epochs):
+        model.train()
         print(f'Starting Epoch {epoch}')
         lossAver = []
         lrScheduler.step()
         start = time()
         dset_len = len(trainloader)
+        correct_pred = 0
         for i, (XI, YI) in enumerate(trainloader):
             # print('%s/%s %s' % (i, times, time()-start))
             YI = np.array([el.numpy() for el in YI]).T
@@ -221,44 +222,39 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-            if (i*batchSize)%500 == 0:
-                old_img = retrieve_img(XI[0])
-                old_img = draw_bbox(old_img, YI[0],'g')
-                old_img = draw_bbox(old_img, y_pred[0],'r')
-                iou_val = IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy())
+                batch_iou = IoU(YI*480, 480*y_pred.cpu().detach().numpy())
+                bin_correct = (batch_iou >= 0.7)
+                correct_pred += np.sum(bin_correct)
+
+            if (i*batchSize)%4004 == 1:
+                #old_img = retrieve_img(XI[0])
+                #old_img = draw_bbox(old_img, YI[0],'g')
+                #old_img = draw_bbox(old_img, y_pred[0],'r')
+                #iou_val = IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy())
                 #write_image(old_img, str(iou_val[0])+'.jpg')
-                #print(iou_val)
                 torch.save(model.state_dict(), 'trained_models/checkpoints/save_ckpt.pth')
+                print('Breaking')
+                break
                 if USE_WANDB:
-                    wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
+                #    wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
                     wandb.save('trained_models/checkpoints/save_ckpt.pth')
-                #old_img1 = retrieve_img(XI[1])
-                #old_img1 = draw_bbox(old_img1, YI[1],'g')
-                #old_img1 = draw_bbox(old_img1, y_pred[1],'r')
-                #write_image(old_img1, 'result1.jpg')
-                #print(IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy()))
-                #gtr_img = draw_bbox(XI[0], YI[0], 'g')
-                #pred_img = draw_bbox(gtr_img, y_pred[0], 'r')
-                #new_img = retrieve_img(pred_img)
-                #write_image(new_img, 'result.jpg')
 
             if i % 10 == 0:
                 curloss = sum(lossAver)/len(lossAver)
+                curacc = correct_pred/(i*batchSize)
                 if USE_WANDB:
-                    wandb.log({'Current Loss':curloss}, step=int((epoch-1)*dset_len/10+i/10))
-                print('Epoch {}, Processed {}, Time {}, Loss {}'.format(epoch, i*batchSize, time()-start, curloss))
-                with open(args['writeFile'], 'a') as outF:
-                    outF.write('train %s images, use %s seconds, loss %s\n' % (i*batchSize, time() - start, sum(lossAver[-50:]) / len(lossAver[-50:])))
-        print ('%s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
+                    wandb.log({'Current Training Loss':curloss, 'Current Training Acc':curacc}, step=int((epoch-1)*dset_len/10+i/10))
+                print('Epoch {}, Processed: {}, Time: {}, Loss: {}, Acc: {}'.format(epoch, i*batchSize, time()-start, curloss, curacc))
+        print ('Epoch %s Trained, Loss: %s, Accuracy: %s, Time: %s\n' % (epoch, sum(lossAver) / len(lossAver), correct_pred/(dset_len*batchSize), time()-start))
         if USE_WANDB:
-            wandb.log({'Epoch Loss': sum(lossAver)/len(lossAver)})
+            wandb.log({'Epoch Train Loss': sum(lossAver)/len(lossAver, 'Epoch Train Accuracy': correct_pred/(dset_len*batchSize))}, step = epoch)
             wandb.save('trained_models/epochs/save_epoch' + str(epoch) + '.pth')
-        with open(args['writeFile'], 'a') as outF:
-            outF.write('Epoch: %s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
         torch.save(model.state_dict(), 'trained_models/epochs/save_epoch' + str(epoch) + '.pth')
-    return model
+        #Begin Eval here
+        val_model(model, evalloader, batchSize, epoch) 
+    return 
 
-def val_model(model, criterion, evalloader, batchSize):
+def val_model(model, evalloader, batchSize, epoch):
     model.eval()
     lossAver = []
     start = time()
@@ -278,42 +274,31 @@ def val_model(model, criterion, evalloader, batchSize):
         lossAver.append(loss.item())
 
         batch_iou = IoU(YI*480, 480*y_pred.cpu().detach().numpy())
-        print('batch_iou:')
-        print(batch_iou)
+        #print('batch_iou:')
+        #print(batch_iou)
         bin_correct = (batch_iou >= 0.7)
-        print('Correct/Incorrect:')
-        print(bin_correct)
+        #print('Correct/Incorrect:')
+        #print(bin_correct)
         correct_pred += np.sum(bin_correct)
-        print('Number correct so far: {}'.format(correct_pred))
+        #print('Number correct so far: {}'.format(correct_pred))
 
         if (i*batchSize)%500 == 0:
-            old_img = retrieve_img(XI[0])
-            old_img = draw_bbox(old_img, YI[0],'g')
-            old_img = draw_bbox(old_img, y_pred[0],'r')
-            iou_val = batch_iou[0] 
             #write_image(old_img, str(iou_val[0])+'.jpg')
             #print(iou_val)
-            torch.save(model.state_dict(), 'trained_models/checkpoints/save_ckpt.pth')
             if USE_WANDB:
-                wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
-                wandb.save('trained_models/checkpoints/save_ckpt.pth')
-            #old_img1 = retrieve_img(XI[1])
-            #old_img1 = draw_bbox(old_img1, YI[1],'g')
-            #old_img1 = draw_bbox(old_img1, y_pred[1],'r')
-            #write_image(old_img1, 'result1.jpg')
-            #print(IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy()))
-            #gtr_img = draw_bbox(XI[0], YI[0], 'g')
-            #pred_img = draw_bbox(gtr_img, y_pred[0], 'r')
-            #new_img = retrieve_img(pred_img)
-            #write_image(new_img, 'result.jpg')
+                old_img = retrieve_img(XI[0])
+                old_img = draw_bbox(old_img, YI[0],'g')
+                old_img = draw_bbox(old_img, y_pred[0],'r')
+                iou_val = batch_iou[0] 
+                wandb.log({'Sample Test Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]}, step=epoch)
 
         if i % 10 == 0:
             curloss = sum(lossAver)/len(lossAver)
-            print('Epoch {}, Processed {}, Time {}, Loss {}'.format(epoch, i*batchSize, time()-start, curloss))
-    print ('Epoch %s done, Loss: %s, Time Elapsed: %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
+            print('Evaluating Epoch: {}, Processed: {}, Time: {}, Loss: {}, Accuracy: {}'.format(epoch, i*batchSize, time()-start, curloss, correct_pred/(i*batchSize)))
+    print ('Epoch %s Evaluated, Loss: %s, Accuracy: %s, Time Elapsed: %s\n' % (epoch, sum(lossAver) / len(lossAver), correct_pred/(i*batchSize), time()-start))
     if USE_WANDB:
-        wandb.log({'Test Epoch Loss': sum(lossAver)/len(lossAver)})
-return model
+        wandb.log({'Eval Epoch Loss': sum(lossAver)/len(lossAver), 'Eval Epoch Accuracy': correct_pred/(i*batchSize)}, step=epoch)
+    return
 
 def IoU(boxa, boxb):
     boxA = np.zeros(boxa.shape)
@@ -380,11 +365,16 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
     lrScheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
     dset_conf = parse_dset_config(args['dsetconf'])
+    #Loading Train Split
     trainloc=dset_conf['train']
     dst = ChaLocDataLoader(trainloc, imgSize)
     trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=4)
+    #Loading Validation Split
+    valloc=dset_conf['val']
+    valdst = ChaLocDataLoader(valloc, imgSize)
+    evalloader = DataLoader(valdst, batch_size=batchSize, shuffle=False, num_workers=4)
     print('Starting Training...')
-    model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize, num_epochs=epochs)
+    model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloader, batchSize, num_epochs=epochs)
 
 if __name__=='__main__':
     main()
