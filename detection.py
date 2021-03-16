@@ -226,13 +226,22 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloade
                 bin_correct = (batch_iou >= 0.7)
                 correct_pred += np.sum(bin_correct)
 
+<<<<<<< HEAD
             if (i*batchSize)%4999 == 1:
+=======
+            if (i*batchSize)%4004 == 1:
+>>>>>>> 4941f89a92045bbb1a9f52f96a60acde090b8467
                 #old_img = retrieve_img(XI[0])
                 #old_img = draw_bbox(old_img, YI[0],'g')
                 #old_img = draw_bbox(old_img, y_pred[0],'r')
                 #iou_val = IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy())
                 #write_image(old_img, str(iou_val[0])+'.jpg')
                 torch.save(model.state_dict(), 'trained_models/checkpoints/save_ckpt.pth')
+<<<<<<< HEAD
+=======
+                print('Breaking')
+                break
+>>>>>>> 4941f89a92045bbb1a9f52f96a60acde090b8467
                 if USE_WANDB:
                 #    wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
                     wandb.save('trained_models/checkpoints/save_ckpt.pth')
@@ -245,7 +254,11 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloade
                 print('Epoch {}, Processed: {}, Time: {}, Loss: {}, Acc: {}'.format(epoch, i*batchSize, time()-start, curloss, curacc))
         print ('Epoch %s Trained, Loss: %s, Accuracy: %s, Time: %s\n' % (epoch, sum(lossAver) / len(lossAver), correct_pred/(dset_len*batchSize), time()-start))
         if USE_WANDB:
+<<<<<<< HEAD
             wandb.log({'Epoch Train Loss': sum(lossAver)/len(lossAver), 'Epoch Train Accuracy': correct_pred/(dset_len*batchSize)}, step = epoch)
+=======
+            wandb.log({'Epoch Train Loss': sum(lossAver)/len(lossAver, 'Epoch Train Accuracy': correct_pred/(dset_len*batchSize))}, step = epoch)
+>>>>>>> 4941f89a92045bbb1a9f52f96a60acde090b8467
             wandb.save('trained_models/epochs/save_epoch' + str(epoch) + '.pth')
         torch.save(model.state_dict(), 'trained_models/epochs/save_epoch' + str(epoch) + '.pth')
         #Begin Eval here
@@ -366,11 +379,19 @@ def main():
     #Loading Train Split
     trainloc=dset_conf['train']
     dst = ChaLocDataLoader(trainloc, imgSize)
+<<<<<<< HEAD
     trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=1)
     #Loading Validation Split
     valloc=dset_conf['val']
     valdst = ChaLocDataLoader(valloc, imgSize)
     evalloader = DataLoader(valdst, batch_size=batchSize, shuffle=False, num_workers=1)
+=======
+    trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=4)
+    #Loading Validation Split
+    valloc=dset_conf['val']
+    valdst = ChaLocDataLoader(valloc, imgSize)
+    evalloader = DataLoader(valdst, batch_size=batchSize, shuffle=False, num_workers=4)
+>>>>>>> 4941f89a92045bbb1a9f52f96a60acde090b8467
     print('Starting Training...')
     model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloader, batchSize, num_epochs=epochs)
 
