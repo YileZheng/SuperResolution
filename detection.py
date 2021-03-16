@@ -10,6 +10,7 @@ import os
 import argparse
 from time import time
 from torch.optim import lr_scheduler
+from utils.dsetparser import parse_dset_config
 
 USE_WANDB = True
 if USE_WANDB:
@@ -19,10 +20,13 @@ if USE_WANDB:
 #Courtesy of https://github.com/detectRecog/CCPD/
 class ChaLocDataLoader(Dataset):
     def __init__(self, img_dir, imgSize, is_transform=None):
-        self.img_dir = img_dir
-        self.img_paths = []
-        for i in range(len(img_dir)):
-            self.img_paths += [el for el in paths.list_images(img_dir[i])]
+        with open(img_dir, 'r') as file:
+            self.img_paths = file.readlines()
+
+        #self.img_dir = img_dir
+        #self.img_paths = []
+        #for i in range(len(img_dir)):
+        #    self.img_paths += [el for el in paths.list_images(img_dir[i])]
         self.img_size = imgSize
         self.is_transform = is_transform
 
@@ -31,7 +35,12 @@ class ChaLocDataLoader(Dataset):
 
     def __getitem__(self, index):
         img_name = self.img_paths[index]
-        img = cv2.imread(img_name)
+        img_name = os.path.join('CCPD2019', img_name)
+        img = cv2.imread(img_name.strip())
+        if img is None:
+            print('Could\'nt read image at path {}'.format(img_name))
+            print('Later, Loser...')
+            exit(0)
         resizedImage = cv2.resize(img, self.img_size)
         resizedImage = np.reshape(resizedImage, (resizedImage.shape[2], resizedImage.shape[0], resizedImage.shape[1]))
 
@@ -172,7 +181,8 @@ def write_image(image, filename): #Input in (C, H, W), 0-1 range
     image_cp = np.copy(image)
     image_cp = np.float32(np.reshape(image_cp, (image_cp.shape[1],image_cp.shape[2], image_cp.shape[0])))
     print('Writing Image...')
-    cv2.imwrite(filename, image_cp*255.0
+    cv2.imwrite(filename, image_cp*255.0)
+    return
 
 def retrieve_img(image):
     cp = np.copy(image)
@@ -192,7 +202,6 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize
         lrScheduler.step()
         start = time()
         dset_len = len(trainloader)
-        print(dset_len)
         for i, (XI, YI) in enumerate(trainloader):
             # print('%s/%s %s' % (i, times, time()-start))
             YI = np.array([el.numpy() for el in YI]).T
@@ -212,16 +221,17 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                torch.save(model.state_dict(), 'model.out')
             if (i*batchSize)%500 == 0:
                 old_img = retrieve_img(XI[0])
                 old_img = draw_bbox(old_img, YI[0],'g')
                 old_img = draw_bbox(old_img, y_pred[0],'r')
                 iou_val = IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy())
-                write_image(old_img, str(iou_val[0])+'.jpg')
-                print(iou_val)
+                #write_image(old_img, str(iou_val[0])+'.jpg')
+                #print(iou_val)
+                torch.save(model.state_dict(), 'trained_models/checkpoints/save_ckpt.pth')
                 if USE_WANDB:
-                    wandb.log({'sample_no='+str(i*batchSize): [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
+                    wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
+                    wandb.save('trained_models/checkpoints/save_ckpt.pth')
                 #old_img1 = retrieve_img(XI[1])
                 #old_img1 = draw_bbox(old_img1, YI[1],'g')
                 #old_img1 = draw_bbox(old_img1, y_pred[1],'r')
@@ -242,10 +252,68 @@ def train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize
         print ('%s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
         if USE_WANDB:
             wandb.log({'Epoch Loss': sum(lossAver)/len(lossAver)})
+            wandb.save('trained_models/epochs/save_epoch' + str(epoch) + '.pth')
         with open(args['writeFile'], 'a') as outF:
             outF.write('Epoch: %s %s %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
-        torch.save(model.state_dict(), 'model_save' + str(epoch))
+        torch.save(model.state_dict(), 'trained_models/epochs/save_epoch' + str(epoch) + '.pth')
     return model
+
+def val_model(model, criterion, evalloader, batchSize):
+    model.eval()
+    lossAver = []
+    start = time()
+    dset_len = len(evalloader)
+    correct_pred = 0
+    for i, (XI, YI) in enumerate(evalloader):
+        YI = np.array([el.numpy() for el in YI]).T
+        x = Variable(XI.cuda(0))
+        y = Variable(torch.FloatTensor(YI).cuda(0), requires_grad=False)
+        # Forward pass: Compute predicted y by passing x to the model
+        y_pred = model(x)
+
+        # Compute and print loss
+        loss = 0.0
+        loss += 0.8 * nn.L1Loss().cuda()(y_pred[:][:2], y[:][:2]) #Penalizing more on box center coordinates
+        loss += 0.2 * nn.L1Loss().cuda()(y_pred[:][2:], y[:][2:])
+        lossAver.append(loss.item())
+
+        batch_iou = IoU(YI*480, 480*y_pred.cpu().detach().numpy())
+        print('batch_iou:')
+        print(batch_iou)
+        bin_correct = (batch_iou >= 0.7)
+        print('Correct/Incorrect:')
+        print(bin_correct)
+        correct_pred += np.sum(bin_correct)
+        print('Number correct so far: {}'.format(correct_pred))
+
+        if (i*batchSize)%500 == 0:
+            old_img = retrieve_img(XI[0])
+            old_img = draw_bbox(old_img, YI[0],'g')
+            old_img = draw_bbox(old_img, y_pred[0],'r')
+            iou_val = batch_iou[0] 
+            #write_image(old_img, str(iou_val[0])+'.jpg')
+            #print(iou_val)
+            torch.save(model.state_dict(), 'trained_models/checkpoints/save_ckpt.pth')
+            if USE_WANDB:
+                wandb.log({'Sample Detections': [wandb.Image(channels_last(old_img*255.0), caption='iou='+str(iou_val)+'.jpg')]})
+                wandb.save('trained_models/checkpoints/save_ckpt.pth')
+            #old_img1 = retrieve_img(XI[1])
+            #old_img1 = draw_bbox(old_img1, YI[1],'g')
+            #old_img1 = draw_bbox(old_img1, y_pred[1],'r')
+            #write_image(old_img1, 'result1.jpg')
+            #print(IoU(YI[0:1]*480, 480*y_pred[0:1].cpu().detach().numpy()))
+            #gtr_img = draw_bbox(XI[0], YI[0], 'g')
+            #pred_img = draw_bbox(gtr_img, y_pred[0], 'r')
+            #new_img = retrieve_img(pred_img)
+            #write_image(new_img, 'result.jpg')
+
+        if i % 10 == 0:
+            curloss = sum(lossAver)/len(lossAver)
+            print('Epoch {}, Processed {}, Time {}, Loss {}'.format(epoch, i*batchSize, time()-start, curloss))
+    print ('Epoch %s done, Loss: %s, Time Elapsed: %s\n' % (epoch, sum(lossAver) / len(lossAver), time()-start))
+    if USE_WANDB:
+        wandb.log({'Test Epoch Loss': sum(lossAver)/len(lossAver)})
+return model
 
 def IoU(boxa, boxb):
     boxA = np.zeros(boxa.shape)
@@ -278,11 +346,11 @@ def IoU(boxa, boxb):
     return iou
 
 ap = argparse.ArgumentParser()
-ap.add_argument("-i", "--images", required=True,
-                help="path to the input file")
+ap.add_argument("-i", "--dsetconf", default='dset_config/config.ccpd',
+                help="path to the dataset config file")
 ap.add_argument("-n", "--epochs", default=25,
                 help="epochs for train")
-ap.add_argument("-b", "--batchsize", default=10,
+ap.add_argument("-b", "--batchsize", default=5,
                 help="batch size for train")
 ap.add_argument("-w", "--writeFile", default='wR2.out',
                 help="file for output")
@@ -311,7 +379,9 @@ def main():
     criterion = nn.MSELoss()
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
     lrScheduler = lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
-    dst = ChaLocDataLoader(args["images"].split(','), imgSize)
+    dset_conf = parse_dset_config(args['dsetconf'])
+    trainloc=dset_conf['train']
+    dst = ChaLocDataLoader(trainloc, imgSize)
     trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=4)
     print('Starting Training...')
     model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, batchSize, num_epochs=epochs)
