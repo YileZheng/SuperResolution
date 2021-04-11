@@ -1,0 +1,13 @@
+#!/bin/bash
+
+text=$1
+folder=$(echo $text | cut -d '.' -f 1 | cut -d '/' -f 2)
+mkdir $folder
+
+cat $text | while read line
+do 
+    img=$(echo $line | cut -d '/' -f 2)
+    ln -s ../$line $folder/$img
+done 
+
+
