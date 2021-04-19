@@ -1,3 +1,6 @@
+import torch
+import torch.nn as nn
+
 class wR2(nn.Module):
     def __init__(self, num_classes=1000):
         super(wR2, self).__init__()

@@ -1,3 +1,6 @@
+import numpy as np
+import cv2
+
 def draw_bbox(image, bbox, color):  #Input/Output in (C, H, W), 0-1 range
     image_cp = np.copy(image)
     h, w = image_cp.shape[1], image_cp.shape[2]

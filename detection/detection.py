@@ -15,7 +15,7 @@ from utils.rpnet_loader import RPNetDLoader
 from models.rpnet import wR2
 from utils.utils import *
 
-USE_WANDB = True
+USE_WANDB = False
 if USE_WANDB:
     import wandb
     wandb.init(project='alpr', entity='afzal', name='detection_skeleton_0')
@@ -168,11 +168,11 @@ def main():
     #Loading Train Split
     trainloc=dset_conf['train']
     dst = RPNetDLoader(trainloc, imgSize)
-    trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=4)
+    trainloader = DataLoader(dst, batch_size=batchSize, shuffle=True, num_workers=1)
     #Loading Validation Split
     valloc=dset_conf['val']
-    valdst = ChaLocDataLoader(valloc, imgSize)
-    evalloader = DataLoader(valdst, batch_size=batchSize, shuffle=False, num_workers=4)
+    valdst = RPNetDLoader(valloc, imgSize)
+    evalloader = DataLoader(valdst, batch_size=batchSize, shuffle=False, num_workers=1)
     print('Starting Training...')
     model_conv = train_model(model, criterion, optimizer, lrScheduler, trainloader, evalloader, batchSize, num_epochs=epochs)
 
