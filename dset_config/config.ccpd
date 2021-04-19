@@ -1,3 +1,0 @@
-train=CCPD2019/splits/train.txt
-val=CCPD2019/splits/val.txt
-test=CCPD2019/splits/test.txt
