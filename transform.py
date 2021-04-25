@@ -8,18 +8,44 @@ def getImageVar(img):
     imgVar = cv2.Laplacian(img2gray, cv2.CV_64F).var()
     return imgVar
 
-def persp_crop(img):
-    dst_points = np.array([(440, 140), (0, 140), (0, 0), (440, 0)], np.float32)
+def persp_crop(img, corners):
+    dst_points = np.array([(48, 16), (0, 16), (0, 0), (48, 0)], np.float32)
     transform_matrix = cv2.getPerspectiveTransform(corners, dst_points)
-    dst = cv2.warpPerspective(img, transform_matrix, (440, 140),flags=cv2.INTER_CUBIC)
+    dst = cv2.warpPerspective(img, transform_matrix, (48, 16),flags=cv2.INTER_CUBIC)
     dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
     dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
     dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
     return dst
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+
+    temp_dir = "./CCPD2019/cropped_base_16_48/"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
     data_dir = "./CCPD2019/ccpd_base/"
+    all_files = os.listdir(data_dir)
+    count = 0
+    total = len(all_files)
+
+    for i in all_files:
+
+        corners = np.array(eval("[(" + i.split("-")[3].replace("&", ",").replace("_", "),(") + ")]"), np.float32) # [0] BR, [1] BL, [2] TL, [3] TR
+        # print(corners)
+        img = cv2.imread(data_dir + i)
+        dst = persp_crop(img, corners)
+        # print(dst.shape)
+        # cv2.imshow("image", dst)
+        # cv2.waitKey(0)
+        assert True == cv2.imwrite(temp_dir + i, dst)
+        count += 1
+        if count % 100 == 0:
+            print("Count / Total: {}/{}".format(count, total))
+
+
+'''
+if __name__ == "__main__":
+    data_dir = "./CCPD2019/ccpd_tilt/"
     all_files = os.listdir(data_dir)
 
     count = 0
@@ -27,13 +53,30 @@ if __name__ == "__main__":
     ratio_list = []
 
     for i in all_files:
-
+        box_cor = np.array(eval("[(" + i.split("-")[2].replace("&", ",").replace("_", "),(") + ")]"), np.float32)
+        box_cor = np.array([box_cor[1], [box_cor[0][0], box_cor[1][1]], box_cor[0], [box_cor[1][0], box_cor[0][1]]])
         corners = np.array(eval("[(" + i.split("-")[3].replace("&", ",").replace("_", "),(") + ")]"), np.float32) # [0] BR, [1] BL, [2] TL, [3] TR
         # print(corners)
         img = cv2.imread(data_dir + i)
-        dst = persp_crop(img)
-        cv2.imshow("image", dst)
-        cv2.waitKey(0)
+        l = []
+        dst = persp_crop(img, box_cor)
+        l.append(dst)
+        dst = persp_crop(img, corners)
+        l.append(dst)
+        l1 = []
+        dst1 = cv2.GaussianBlur(dst, ksize=(9, 9), sigmaX=0, sigmaY=0)
+        l1.append(dst1)
+        dst2 = cv2.fastNlMeansDenoisingColored(dst, None, 10, 10, 7, 21)
+        l1.append(dst2)
+
+        images = np.vstack([np.hstack(l), np.hstack(l1)])
+        # cv2.imshow("image", images)
+        # cv2.waitKey(0)
+        cv2.imwrite("./temp/{}.jpg".format(count), images)
+        count += 1
+        if count == 100:
+            exit(0)
+'''
 
 '''
     for i in all_files:
