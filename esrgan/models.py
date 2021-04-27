@@ -183,17 +183,12 @@ class Generator_Anti_Artifact(nn.Module):
         out2 = self.conv2(out)
         out = torch.add(out1, out2)
 
-        print(out.shape)
         upsample1 = self.upsample1(out)
         upsample2 = self.upsample2(out)
-        print(upsample1.shape)
-        print(upsample2.shape)
         out = upsample1 + 0.1 * upsample2
 
         upsample3 = self.upsample3(out)
         upsample4 = self.upsample4(out)
-        print(upsample3.shape)
-        print(upsample4.shape)
         out = upsample3 + 0.1 * upsample4
 
         out = self.conv3(out)
