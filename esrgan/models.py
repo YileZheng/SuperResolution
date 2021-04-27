@@ -71,7 +71,8 @@ class GeneratorRRDB(nn.Module):
         upsample_layers = []
         for _ in range(num_upsample):
             upsample_layers += [
-                nn.Conv2d(filters, filters * 4, kernel_size=3, stride=1, padding=1),
+               
+               
                 nn.LeakyReLU(),
                 nn.PixelShuffle(upscale_factor=2),
             ]
@@ -125,3 +126,75 @@ class Discriminator(nn.Module):
 
     def forward(self, img):
         return self.model(img)
+
+
+class Generator_Anti_Artifact(nn.Module):
+    def __init__(self, channels, filters=64, num_res_blocks=16, num_upsample=2):
+        super(Generator_Anti_Artifact, self).__init__()
+
+        # First layer
+        self.conv1 = nn.Conv2d(channels, filters, kernel_size=3, stride=1, padding=1)
+        # Residual blocks
+        self.res_blocks = nn.Sequential(*[ResidualInResidualDenseBlock(filters) for _ in range(num_res_blocks)])
+        # Second conv layer post residual blocks
+        self.conv2 = nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1)
+
+        # Upsampling layers
+        # upsample_layers = []
+        # for _ in range(num_upsample):
+        #     upsample_layers += [
+        #         nn.Upsample(scale_factor=2, mode="bilinear", align_corners=Ture)
+        #         nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1)
+        #     ]
+        # self.upsampling = nn.Sequential(*upsample_layers)
+        self.upsample1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
+            nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU()
+        )
+        
+        self.upsample2 = nn.Sequential(
+            nn.ConvTranspose2d(filters, filters, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.LeakyReLU()
+        )
+
+        self.upsample3 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
+            nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU()
+        )
+        
+        self.upsample4 = nn.Sequential(
+            nn.ConvTranspose2d(filters, filters, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.LeakyReLU()
+        )
+
+
+        # Final output block
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(filters, channels, kernel_size=3, stride=1, padding=1),
+        )
+
+    def forward(self, x):
+        out1 = self.conv1(x)
+        out = self.res_blocks(out1)
+        out2 = self.conv2(out)
+        out = torch.add(out1, out2)
+
+        print(out.shape)
+        upsample1 = self.upsample1(out)
+        upsample2 = self.upsample2(out)
+        print(upsample1.shape)
+        print(upsample2.shape)
+        out = upsample1 + 0.1 * upsample2
+
+        upsample3 = self.upsample3(out)
+        upsample4 = self.upsample4(out)
+        print(upsample3.shape)
+        print(upsample4.shape)
+        out = upsample3 + 0.1 * upsample4
+
+        out = self.conv3(out)
+        return out
