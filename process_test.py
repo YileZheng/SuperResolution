@@ -10,7 +10,12 @@ import torchvision.transforms as transforms
 from esrgan.models import *
 from esrgan.datasets import *
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+HEIGHT = 16
+WIDTH = 48
+mean = np.array([0.485, 0.456, 0.406])
+std = np.array([0.229, 0.224, 0.225])
+
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
 generator_upconv = GeneratorRRDB(channels=3, filters=64, num_res_blocks=23).to(device)
 
@@ -30,6 +35,15 @@ generator_upsamp_nn.load_state_dict(torch.load("weights/sr/generator_upsamp_nn.p
 
 generator_upsamp_nn.eval()
 
+lr_transform = transforms.Compose(
+    [
+        transforms.Resize((HEIGHT, WIDTH), Image.BICUBIC),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ]
+)
+
+
 def get_1_LR_upsampled_nearest(img, box, height, width):
 
     # 1. cropping based on bounding box, then map to LR size (16 * 48)
@@ -37,9 +51,9 @@ def get_1_LR_upsampled_nearest(img, box, height, width):
     transform_matrix = cv2.getPerspectiveTransform(np.array([box[1], (box[0][0], box[1][1]), box[0], (box[1][0], box[0][1])],np.float32), dst_points)
     dst = cv2.warpPerspective(img, transform_matrix, (width, height), flags=cv2.INTER_CUBIC)
     # 2. histogram equalization
-    dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
-    dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
-    dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
+    #dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
+    #dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
+    #dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
     # 3. upsampling 4x using nearest (e.g., 2x means upsampling [1, 2, 3] to [1, 1, 2, 2, 3, 3])
     dst = np.transpose(dst, (2, 0, 1))
     img_16_48 = torch.from_numpy(dst).unsqueeze(0)
@@ -74,9 +88,9 @@ def get_3_HR_corner_upconv(img, corners, height, width):
     transform_matrix = cv2.getPerspectiveTransform(corners, dst_points)
     dst = cv2.warpPerspective(img, transform_matrix, (width, height), flags=cv2.INTER_CUBIC)
     # 2. histogram equalization
-    dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
-    dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
-    dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
+    #dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
+    #dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
+    #dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
     # 3. use CCPD's inherent `low-res transform` function
     dst = Image.fromarray(cv2.cvtColor(dst, cv2.COLOR_BGR2RGB))
     img_16_48 = lr_transform(dst)
@@ -114,9 +128,9 @@ def get_5_HR_corner_upsamp(img, corners, height, width):
     transform_matrix = cv2.getPerspectiveTransform(corners, dst_points)
     dst = cv2.warpPerspective(img, transform_matrix, (width, height), flags=cv2.INTER_CUBIC)
     # 2. histogram equalization
-    dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
-    dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
-    dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
+    #dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
+    #dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
+    #dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
     # 3. use CCPD's inherent `low-res transform` function
     dst = Image.fromarray(cv2.cvtColor(dst, cv2.COLOR_BGR2RGB))
     img_16_48 = lr_transform(dst)
@@ -154,9 +168,9 @@ def get_7_HR_corner_upsamp_nn(img, corners, height, width):
     transform_matrix = cv2.getPerspectiveTransform(corners, dst_points)
     dst = cv2.warpPerspective(img, transform_matrix, (width, height), flags=cv2.INTER_CUBIC)
     # 2. histogram equalization
-    dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
-    dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
-    dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
+    #dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
+    #dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
+    #dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
     # 3. use CCPD's inherent `low-res transform` function
     dst = Image.fromarray(cv2.cvtColor(dst, cv2.COLOR_BGR2RGB))
     img_16_48 = lr_transform(dst)
@@ -169,43 +183,43 @@ def get_7_HR_corner_upsamp_nn(img, corners, height, width):
     img_hr = cv2.cvtColor(img_hr, cv2.COLOR_BGR2GRAY)
     return img_hr
 
-if __name__ == "__main__":
-
-    HEIGHT = 16
-    WIDTH = 48
-
-    mean = np.array([0.485, 0.456, 0.406])
-    std = np.array([0.229, 0.224, 0.225])
-    global lr_transform
-    lr_transform = transforms.Compose(
-        [
-            transforms.Resize((HEIGHT, WIDTH), Image.BICUBIC),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ]
-    )
-
-    CCPD_dir = "..\\..\\CCPD2019\\ccpd_base\\"
-    imgs = os.listdir(CCPD_dir) # all imgs' name in a ccpd_xxx folder
-
-    if os.path.isfile(CCPD_dir + imgs[0]) == False:
-        print("File directory format error!")
-        exit(1)
-    for i in range(len(imgs)):
-        img = cv2.imread(CCPD_dir + imgs[i])
-        box = np.array(eval("[(" + imgs[i].split("-")[2].replace("&", ",").replace("_", "),(") + ")]"))
-        corners = np.array(eval("[(" + imgs[i].split("-")[3].replace("&", ",").replace("_", "),(") + ")]"), np.float32)
-        ## choose one function below
-        # img = get_1_LR_upsampled_nearest(img, box, HEIGHT, WIDTH)
-        # img = get_2_HR_box_upconv(img, box, HEIGHT, WIDTH)
-        # img = get_3_HR_corner_upconv(img, corners, HEIGHT, WIDTH)
-        # img = get_4_HR_box_upsamp(img, box, HEIGHT, WIDTH)
-        # img = get_5_HR_corner_upsamp(img, corners, HEIGHT, WIDTH)
-        # img = get_6_HR_box_upsamp_nn(img, box, HEIGHT, WIDTH)
-        img = get_7_HR_corner_upsamp_nn(img, corners, HEIGHT, WIDTH)
-        print(img.shape)
-        cv2.imshow("test", img)
-        cv2.waitKey(0)
+#if __name__ == "__main__":
+#
+#    HEIGHT = 16
+#    WIDTH = 48
+#
+#    mean = np.array([0.485, 0.456, 0.406])
+#    std = np.array([0.229, 0.224, 0.225])
+#    global lr_transform
+#    lr_transform = transforms.Compose(
+#        [
+#            transforms.Resize((HEIGHT, WIDTH), Image.BICUBIC),
+#            transforms.ToTensor(),
+#            transforms.Normalize(mean, std),
+#        ]
+#    )
+#
+#    CCPD_dir = "..\\..\\CCPD2019\\ccpd_base\\"
+#    imgs = os.listdir(CCPD_dir) # all imgs' name in a ccpd_xxx folder
+#
+#    if os.path.isfile(CCPD_dir + imgs[0]) == False:
+#        print("File directory format error!")
+#        exit(1)
+#    for i in range(len(imgs)):
+#        img = cv2.imread(CCPD_dir + imgs[i])
+#        box = np.array(eval("[(" + imgs[i].split("-")[2].replace("&", ",").replace("_", "),(") + ")]"))
+#        corners = np.array(eval("[(" + imgs[i].split("-")[3].replace("&", ",").replace("_", "),(") + ")]"), np.float32)
+#        ## choose one function below
+#        # img = get_1_LR_upsampled_nearest(img, box, HEIGHT, WIDTH)
+#        # img = get_2_HR_box_upconv(img, box, HEIGHT, WIDTH)
+#        # img = get_3_HR_corner_upconv(img, corners, HEIGHT, WIDTH)
+#        # img = get_4_HR_box_upsamp(img, box, HEIGHT, WIDTH)
+#        # img = get_5_HR_corner_upsamp(img, corners, HEIGHT, WIDTH)
+#        # img = get_6_HR_box_upsamp_nn(img, box, HEIGHT, WIDTH)
+#        img = get_7_HR_corner_upsamp_nn(img, corners, HEIGHT, WIDTH)
+#        print(img.shape)
+#        cv2.imshow("test", img)
+#        cv2.waitKey(0)
 
 # # # Read image
 # # img = cv2.imread("images\\training\\0000500.png")

@@ -19,10 +19,12 @@ import ColorLog as debug
 
 from load_data import labelFpsPathDataLoader, label_trans, decode
 
+ 
 
-def eval(model, test_tar, bsz, img_size, perspect=False):
+def eval(model, test_tar, bsz, img_size, perspect=None):
     use_gpu = True
     count, error, correct = 0, 0, 0
+    print(debug.INFO+"upsample method: ", perspect)
     dst = labelFpsPathDataLoader(test_tar,"CCPD2019", img_size, is_transform=perspect)
 #     dst = labelFpsDataLoader(test_tar, img_size)
     
@@ -43,16 +45,17 @@ def eval(model, test_tar, bsz, img_size, perspect=False):
             x = Variable(torch.Tensor(XI))
             lbl = Variable(torch.LongTensor(YI))
 
+        print(x.shape)
         y_pred = model(x)
 #         print(y_pred.shape)
         
         _, preds = y_pred.max(2)
         preds = preds.transpose(1, 0).contiguous()
-        for i in range(lbl.shape[0]):
+        for j in range(lbl.shape[0]):
             n_correct = 0
-            sim_preds, _ = decode(preds[i].data)
+            sim_preds, _ = decode(preds[j].data)
 #             print(sim_preds,lbl[i].data)
-            for pred, target in zip(sim_preds, lbl[i].data):
+            for pred, target in zip(sim_preds, lbl[j].data):
                 if pred == target:
                     n_correct += 1
             corr_eachinst.append(n_correct)
@@ -63,13 +66,14 @@ def eval(model, test_tar, bsz, img_size, perspect=False):
         
         if i%10 ==1:
             print(debug.INFO+"image: {}, inst:{}".format(count,np.mean(corrs_eachinst)))#, corrs_eachchar/count))
-    wandb.log({'val':{
+    wandb.log({'inf':{
         'image#':count,
         'corr_in_instance':np.mean(corrs_eachinst),
         'accu_instance':np.mean(corrs_eachinst)/7,
         'accu_all_corr':len(corrs_eachinst[corrs_eachinst==7]),
         'corr_distrb':wandb.Histogram(corrs_eachinst),
-        'corr_inst':corrs_eachinst
+        'corr_inst':corrs_eachinst,
+        'upsample_method':perspect
               }})  
     
     return count, corrs_eachinst, np.mean(corrs_eachinst)/7, (time()-start) / count

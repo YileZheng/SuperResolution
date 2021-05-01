@@ -11,7 +11,7 @@ from torch.autograd import Variable
 import torch.utils.data as Data
 
 import ColorLog as debug
-#from esrgan.process_test import get_1_LR_upsampled_nearest, get_2_HR_box_upconv, get_3_HR_corner_upconv, get_4_HR_box_upsamp, get_5_HR_corner_upsamp, get_6_HR_box_upsamp_nn, get_6_HR_box_upsamp_nn
+from process_test import get_1_LR_upsampled_nearest, get_2_HR_box_upconv, get_3_HR_corner_upconv, get_4_HR_box_upsamp, get_5_HR_corner_upsamp, get_6_HR_box_upsamp_nn, get_7_HR_corner_upsamp_nn
 
 image_types = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
@@ -24,15 +24,17 @@ NUM_PROV = len(provinces)
 NUM_ALPB = len(alphabets)
 NUM_ADS = len(ads)
 NUM_CHAR = len(chars)
+HEIGHT = 16
+WIDTH = 48
 
 def persp_crop(img, corners, height, width):
     dst_points = np.array([(width, height), (0, height), (0, 0), (width, 0)], np.float32)
     transform_matrix = cv2.getPerspectiveTransform(corners, dst_points)
     dst = cv2.warpPerspective(img, transform_matrix, (width, height),flags=cv2.INTER_CUBIC)
 
-    dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
-    dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
-    dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
+    # dst = cv2.cvtColor(dst, cv2.COLOR_BGR2YUV)
+    # dst[:,:,0] = cv2.equalizeHist(dst[:,:,0])
+    # dst = cv2.cvtColor(dst, cv2.COLOR_YUV2BGR)
     dst = cv2.cvtColor(dst, cv2.COLOR_BGR2GRAY)
     return dst
 
@@ -101,11 +103,11 @@ class labelFpsPathDataLoader(Data.Dataset):
         self.is_transform = is_transform
 
     def __len__(self):
-        return len(self.img_paths)
+        return 1000#len(self.img_paths)
 
     def __getitem__(self, index):
         img_name = self.img_paths[index]
-        img = cv2.imread(img_name,cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(img_name)  #,cv2.IMREAD_GRAYSCALE)
         lbl = img_name.split('/')[-1].rsplit('.', 1)[0].split('-')[-3]
 #         old_lbl = lbl.split('_')[:7]
 #         print("lbl",len(old_lbl))
@@ -123,40 +125,44 @@ class labelFpsPathDataLoader(Data.Dataset):
         ori_w, ori_h = [float(int(el)) for el in [img.shape[1], img.shape[0]]]
         new_labels = [(leftUp[0] + rightDown[0]) / (2 * ori_w), (leftUp[1] + rightDown[1]) / (2 * ori_h),
                       (rightDown[0] - leftUp[0]) / ori_w, (rightDown[1] - leftUp[1]) / ori_h]
-#         print(img.shape)
-        #if self.is_transform=='LR':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        #elif self.is_transform=='box_upsamp':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        #elif self.is_transform=='box_upconv':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        #elif self.is_transform=='box_upsamp_nn':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        #elif self.is_transform=='cor_upconv':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        #elif self.is_transform=='cor_upsamp':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        #elif self.is_transform=='cor_upsamp_nn':
-        #    corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
-        #    resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
-        if self.is_transform==True:
+        if self.is_transform=='LR':
+            box = np.array([[int(eel) for eel in el.split('&')] for el in iname[2].split('_')], np.float32)
+            resizedImage = get_1_LR_upsampled_nearest(img, box, HEIGHT, WIDTH)
+            resizedImage = resizedImage.astype('float32')
+            resizedImage /= 255.0
+        elif self.is_transform=='box_upsamp':
+            box = np.array([[int(eel) for eel in el.split('&')] for el in iname[2].split('_')], np.float32)
+            resizedImage = get_4_HR_box_upsamp(img, box, HEIGHT, WIDTH)
+        elif self.is_transform=='box_upconv':
+            box = np.array([[int(eel) for eel in el.split('&')] for el in iname[2].split('_')], np.float32)
+            resizedImage = get_2_HR_box_upconv(img, box, HEIGHT, WIDTH)
+        elif self.is_transform=='box_upsamp_nn':
+            box = np.array([[int(eel) for eel in el.split('&')] for el in iname[2].split('_')], np.float32)
+            resizedImage = get_6_HR_box_upsamp_nn(img, box, HEIGHT, WIDTH)
+        elif self.is_transform=='cor_upconv':
+            corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
+            resizedImage = get_3_HR_corner_upconv(img, corners, HEIGHT, WIDTH)
+        elif self.is_transform=='cor_upsamp':
+            corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
+            resizedImage = get_5_HR_corner_upsamp(img, corners, HEIGHT, WIDTH)
+        elif self.is_transform=='cor_upsamp_nn':
+            corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
+            resizedImage = get_7_HR_corner_upsamp_nn(img, corners, HEIGHT, WIDTH)
+        elif self.is_transform=='origin':
             corners = np.array([[int(eel) for eel in el.split('&')] for el in iname[3].split('_')], np.float32)
             resizedImage = persp_crop(img, corners, self.img_size[1], self.img_size[0])
+            resizedImage = resizedImage.astype('float32')
+            resizedImage /= 255.0
         else:
             croppedImage = img[leftUp[1]:rightDown[1],leftUp[0]:rightDown[0]]
             resizedImage = cv2.resize(croppedImage, self.img_size)
+            resizedImage = np.transpose(resizedImage,(2,0,1))
+            resizedImage = resizedImage.astype('float32')
+            resizedImage /= 255.0
 #         print(croppedImage.shape)
-        print(resizedImage)
+        #print(resizedImage)
         resizedImage = np.expand_dims(resizedImage,0)
-        print(resizedImage.mean)
-        resizedImage = resizedImage.astype('float32')
-        resizedImage /= 255.0
+        #print(resizedImage.mean)
 #         plt.imshow(np.transpose(resizedImage, (1,2,0)))
 #         plt.show()
 
