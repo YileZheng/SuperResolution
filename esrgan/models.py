@@ -195,7 +195,7 @@ class Generator_Anti_Artifact(nn.Module):
 
 class Generator_Anti_Artifact_Nearest_Neighbor(nn.Module):
     def __init__(self, channels, filters=64, num_res_blocks=16, num_upsample=2):
-        super(Generator_Anti_Artifact, self).__init__()
+        super(Generator_Anti_Artifact_Nearest_Neighbor, self).__init__()
 
         # First layer
         self.conv1 = nn.Conv2d(channels, filters, kernel_size=3, stride=1, padding=1)
@@ -213,7 +213,7 @@ class Generator_Anti_Artifact_Nearest_Neighbor(nn.Module):
         #     ]
         # self.upsampling = nn.Sequential(*upsample_layers)
         self.upsample1 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode="nearest", align_corners=True),
+            nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
             nn.LeakyReLU()
         )
@@ -224,7 +224,7 @@ class Generator_Anti_Artifact_Nearest_Neighbor(nn.Module):
         )
 
         self.upsample3 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode="nearest", align_corners=True),
+            nn.Upsample(scale_factor=2, mode="nearest"),
             nn.Conv2d(filters, filters, kernel_size=3, stride=1, padding=1),
             nn.LeakyReLU()
         )
