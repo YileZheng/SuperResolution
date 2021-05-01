@@ -17,7 +17,6 @@ import wandb
 
 import ColorLog as debug
 
-from load_data import labelFpsDataLoader, labelTestDataLoader
 wandb.init(project='plateRecog_crnn', entity='leleleooonnn')
 config = wandb.config
 
@@ -518,7 +517,7 @@ print(debug.INFO+"Start loading dataset...")
 # dst = labelFpsDataLoader(TRAINDIR, PLATESIZE)
 dst = labelFpsPathDataLoader(TRAINTXT,"CCPD2019", PLATESIZE, is_transform=PERSPECTIVE)
 print(debug.INFO+"Got dataset size %d"%len(dst))
-trainloader = Data.DataLoader(dst, batch_size=BATCHSIZE, shuffle=True, num_workers=8)
+trainloader = Data.DataLoader(dst, batch_size=BATCHSIZE, shuffle=True, num_workers=0)
 print(debug.INFO+"Done loading dataset")
 
 print(debug.INFO+"Start training")

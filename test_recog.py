@@ -18,7 +18,7 @@ import wandb
 
 import ColorLog as debug
 
-from load_data import labelFpsDataLoader, labelFpsPathDataLoader
+from load_data import labelFpsPathDataLoader
 from models import CRNN
 from train import eval
 
@@ -36,9 +36,7 @@ NUM_PROV = len(provinces)
 NUM_ALPB = len(alphabets)
 NUM_ADS = len(ads)
 NUM_CHAR = len(chars)
-MODEL_PATH = "weight/crnn.pth"
-
-PLATESIZE = (192,64)
+MODEL_PATH = "weights/recog/eager-vortex/crnn_192_64.pth14"
 
 TRAINDIR = ['CCPD2019/train']
 TESTDIR = ['CCPD2019/test']
@@ -46,6 +44,20 @@ VALDIR = ['CCPD2019/val']
 VALTXT = "CCPD2019/splits/val.txt"
 TRAINTXT = "CCPD2019/splits/train.txt"
 TESTTXT = "CCPD2019/splits/test.txt"
+
+LR = 0.001
+PERSPECTIVE = True
+PLATESIZE = (192,64) #(100,32)#(256,96)
+BATCHSIZE = 1
+EPOCH = 100
+
+
+
+# data loading
+# image size 720x1160x3
+config.input_size = PLATESIZE
+config.perspectiveTrans = PERSPECTIVE
+
 
 # test on val dataset
 torch.cuda.set_device(0)
@@ -55,9 +67,13 @@ torch.cuda.empty_cache()
 # PLATESIZE = (256,96)
 print("loading model...")
 model = CRNN(imgH=PLATESIZE[1], nc=1, nclass=NUM_CHAR, nh=256, n_rnn=2, leakyRelu=False)
+print("load model")
 model.load_state_dict(torch.load(MODEL_PATH))
 model.cuda()
 model.eval()
 
 print("evaluating...")
-count, corrs_inst, precision, avgTime = eval(model=model, test_tar=VALTXT)
+count, corrs_inst, precision, avgTime = eval(model=model, test_tar=VALTXT, img_size=PLATESIZE, bsz=BATCHSIZE, perspect=PERSPECTIVE)
+print('************* Validation: total %s precision %s avgTime %s\n' % (count, precision, avgTime))
+print('accu_all_corr',len(corrs_inst[corrs_inst==7]))
+print('accu_perct',len(corrs_inst[corrs_inst==7])/count)

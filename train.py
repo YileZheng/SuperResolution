@@ -17,40 +17,34 @@ import wandb
 
 import ColorLog as debug
 
-from load_data import labelFpsDataLoader, labelFpsPathDataLoader
+from load_data import labelFpsPathDataLoader, label_trans, decode
 
 
-def eval(model, test_tar):
+def eval(model, test_tar, bsz, img_size, perspect=False):
     use_gpu = True
     count, error, correct = 0, 0, 0
-    dst = labelFpsPathDataLoader(test_tar,"CCPD2019", PLATESIZE)
-#     dst = labelFpsDataLoader(test_tar, PLATESIZE)
-    bsz = 16
-    testloader = Data.DataLoader(dst, batch_size=bsz, shuffle=True, num_workers=8)
+    dst = labelFpsPathDataLoader(test_tar,"CCPD2019", img_size, is_transform=perspect)
+#     dst = labelFpsDataLoader(test_tar, img_size)
+    
+    testloader = Data.DataLoader(dst, batch_size=bsz, shuffle=True, num_workers=0)
     start = time()
 #     corrs_eachchar = np.zeros((7))
+    print(debug.INFO+"start inference..")
     corrs_eachinst =[]
     for i, (XI,_, labels, ims, _) in enumerate(testloader):
         
         corr_eachinst =[]
-#         assert len(labels) == bsz
         count += len(labels)
-#         YI = [[int(ee) for ee in el.split('_')[:7]] for el in labels]
-#         labelGT = np.array([[int(ee) for ee in el.split('_')[:7]] for el in labels])
         YI = np.array([label_trans(el.split('_')[:7]) for el in labels])
         if use_gpu:
-            x = Variable(XI.cuda(0))
+            x = Variable(torch.Tensor(XI).cuda())
             lbl = Variable(torch.LongTensor(YI).cuda())
         else:
-            x = Variable(XI)
+            x = Variable(torch.Tensor(XI))
             lbl = Variable(torch.LongTensor(YI))
-        # Forward pass: Compute predicted y by passing x to the model
 
         y_pred = model(x)
 #         print(y_pred.shape)
-#         input()
-#         outputY = [el.data.cpu().numpy().tolist() for el in y_pred]
-#         labelPred = [t[0].index(max(t[0])) for each in btch for btch in outputY]
         
         _, preds = y_pred.max(2)
         preds = preds.transpose(1, 0).contiguous()
@@ -64,38 +58,11 @@ def eval(model, test_tar):
             corr_eachinst.append(n_correct)
             
 
-#         labelPred = np.array([np.argmax(branch, axis=1) for branch in outputY])
-#         print(labelPred)
-#         scoreboard = (labelPred.T == labelGT)
-#         corr_eachinst = np.sum(scoreboard, axis=1)
-#         corr_eachchar = np.sum(scoreboard, axis=0)
-#         print(corr_eachinst,len(corr_eachinst))
-#         assert len(corr_eachinst) == bsz
-#         assert len(corr_eachchar) == 7
         corrs_eachinst = np.append(corrs_eachinst,corr_eachinst)
-#         corrs_eachchar = corrs_eachchar+corr_eachchar
-        
-#         tmp = corr_eachchar/len(labels)
-#         table = wandb.Table(data=list(corr_eachchar/len(labels)),columns=['1','2','3','4','5','6','7'])
         
         
         if i%10 ==1:
             print(debug.INFO+"image: {}, inst:{}".format(count,np.mean(corrs_eachinst)))#, corrs_eachchar/count))
-#         def isEqual(labelGT, labelP):
-#             compare = [1 if int(labelGT[i]) == int(labelP[i]) else 0 for i in range(7)]
-#             # print(sum(compare))
-#             return sum(compare)
-
-#         #   compare YI, outputY
-#         try:
-#             if isEqual(labelPred, YI[0]) == 7:
-#                 correct += 1
-#             else:
-#                 pass
-#         except:
-#             print(debug.WARN+"val fails")
-#             error += 1
-# correct, error, float(correct) / count,
     wandb.log({'val':{
         'image#':count,
         'corr_in_instance':np.mean(corrs_eachinst),
@@ -210,4 +177,6 @@ def train_model(model, trainloader, criterion, optimizer,batchSize, testDirs,sto
         torch.save(model.state_dict(), storeName + str(epoch))
         print('************* Validation: total %s precision %s avgTime %s\n' % (count, precision, avgTime))
     return model
+
+
 
