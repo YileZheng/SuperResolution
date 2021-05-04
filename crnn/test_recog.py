@@ -37,8 +37,8 @@ NUM_PROV = len(provinces)
 NUM_ALPB = len(alphabets)
 NUM_ADS = len(ads)
 NUM_CHAR = len(chars)
-MODEL_BOX = "weights/recog/morning-fog/crnn_192_64.pth16"
-MODEL_CORNERS = "weights/recog/eager-vortex/crnn_192_64.pth16"
+MODEL_BOX = "weights/recog/morning-fog_box/crnn_192_64.pth16"
+MODEL_CORNERS = "weights/recog/eager-vortex_cor/crnn_192_64.pth16"
 
 MODEL_PATH = MODEL_CORNERS
 UPSAMP_METHODS = UPSAMP_METHODS_BOX if (MODEL_PATH == MODEL_BOX) else UPSAMP_METHODS_COR
