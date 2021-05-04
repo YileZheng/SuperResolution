@@ -1,0 +1,24 @@
+{
+    "os": "Linux-4.15.0-137-generic-x86_64-with-Ubuntu-18.04-bionic",
+    "python": "3.6.9",
+    "heartbeatAt": "2021-05-02T10:39:48.025343",
+    "startedAt": "2021-05-02T10:39:46.066450",
+    "docker": null,
+    "gpu": "NVIDIA Tesla V100S-PCIE-32GB",
+    "gpu_count": 2,
+    "cpu_count": 128,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "test_recog.py",
+    "codePath": "crnn/test_recog.py",
+    "git": {
+        "remote": "https://github.com/YileZheng/SuperResolution.git",
+        "commit": "223843c8da830905ca1c43c493eba95700f137dd"
+    },
+    "email": null,
+    "root": "/home/SuperResolution",
+    "host": "85931c8ed5c0",
+    "username": "root",
+    "executable": "/usr/local/bin/python"
+}
